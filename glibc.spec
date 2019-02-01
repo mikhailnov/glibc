@@ -38,7 +38,6 @@
 %define multilibc libc%{major}
 
 %define _disable_rebuild_configure 1
-%define _disable_lto 1
 %define _disable_ld_no_undefined 1
 
 # (tpg) optimize it a bit
@@ -219,7 +218,6 @@ Patch1020:	glibc-2.19-no-__builtin_va_arg_pack-with-clang.patch
 # http://sourceware.org/bugzilla/show_bug.cgi?id=14995
 # http://sourceware.org/bugzilla/attachment.cgi?id=6795
 Patch1029:	glibc-2.19-nscd-socket-and-pid-moved-from-varrun-to-run.patch
-Patch1033:	glibc-2.25-force-use-ld-bfd.patch
 Patch1034:	glibc-2.27-clang-_Float.patch
 Patch1035:	glibc-2.28-riscv-compile.patch
 
@@ -956,10 +954,6 @@ autoconf
 
 #-----------------------------------------------------------------------
 %build
-# ...
-mkdir -p bin
-ln -sf %{_bindir}/ld.bfd bin/ld
-export PATH=$PWD/bin:$PATH
 
 # Prepare test matrix in the next function
 > %{checklist}
@@ -975,8 +969,7 @@ function BuildGlibc() {
   BuildAltArch="no"
   BuildCompFlags=""
   # -Wall is just added to get conditionally %%optflags printed...
-  # cut -flto flag
-  BuildFlags="$(rpm --target ${arch}-%{_target_os} -D '%__common_cflags_with_ssp -Wall' -E %%{optflags} | sed -e 's# -fPIC##g' -e 's#-m64##' -e 's#-gdwarf-4##;s#-g##' -e 's#-flto##' -e 's#-O[s2]#-O3#')"
+  BuildFlags="$(rpm --target ${arch}-%{_target_os} -D '%__common_cflags_with_ssp -Wall' -E %%{optflags} | sed -e 's# -fPIC##g' -e 's#-m64##' -e 's#-gdwarf-4##;s#-g##' -e 's#-O[s2]#-O3#')"
 
   case $arch in
     i[3-6]86)
@@ -1033,8 +1026,8 @@ function BuildGlibc() {
   esac
 
   # Determine C & C++ compilers
-  BuildCC="gcc -fuse-ld=bfd $BuildCompFlags"
-  BuildCXX="g++ -fuse-ld=bfd $BuildCompFlags"
+  BuildCC="gcc $BuildCompFlags"
+  BuildCXX="g++ $BuildCompFlags"
 
   # Are we supposed to cross-compile?
   if [ "%{target_cpu}" != "%{_target_cpu}" ]; then
@@ -1049,9 +1042,6 @@ function BuildGlibc() {
 # (tpg) build with -O3
 
   BuildFlags="$BuildFlags -Wp,-D_GLIBCXX_ASSERTIONS -DNDEBUG=1 -fasynchronous-unwind-tables -fstack-clash-protection -funwind-tables %(echo %{__common_cflags_with_ssp} |sed -e 's#-O[s2]#-O3#g')"
-  %if "%{distepoch}" >= "2015.0"
-  BuildFlags="$BuildFlags -fno-lto"
-  %endif
 
   if [ "$arch" = 'i586' ] || [ "$arch" = 'i686' ]; then
     # Work around https://sourceware.org/ml/libc-alpha/2015-10/msg00745.html
@@ -1121,7 +1111,7 @@ function BuildGlibc() {
     configarch=$arch
     ;;
   esac
-  CC="$BuildCC" CXX="$BuildCXX" CFLAGS="$BuildFlags -Wno-error" ARFLAGS="$ARFLAGS --generate-missing-build-notes=yes" LDFLAGS="%{ldflags} -fuse-ld=bfd" ../configure \
+  CC="$BuildCC" CXX="$BuildCXX" CFLAGS="$BuildFlags -Wno-error" ARFLAGS="$ARFLAGS --generate-missing-build-notes=yes" LDFLAGS="%{ldflags}" ../configure \
     --target=$configarch-%{platform} \
     --host=$configarch-%{platform} \
     $BuildCross \
@@ -1202,16 +1192,16 @@ for i in %{targets}; do
 	esac
 	mkdir -p obj-${TRIPLET}
 	cd obj-${TRIPLET}
-	CFLAGS="$(rpm --target ${i} --eval '%%{optflags} -fuse-ld=bfd -fno-strict-aliasing -Wno-error' |sed -e 's,-flto,,g;s,-Werror[^ ]*,,g')" \
-	CXXFLAGS="$(rpm --target ${i} --eval '%%{optflags} -fuse-ld=bfd -fno-strict-aliasing -Wno-error' |sed -e 's,-flto,,g;s,-Werror[^ ]*,,g')" \
-	ASFLAGS="$(rpm --target ${i} --eval '%%{optflags} -fuse-ld=bfd -fno-strict-aliasing -Wno-error' |sed -e 's,-flto,,g;s,-Werror[^ ]*,,g')" \
-	LDFLAGS="$(rpm --target ${i} --eval '%%{ldflags} -fuse-ld=bfd -fno-strict-aliasing -Wno-error' |sed -e 's,-flto,,g')" \
+	CFLAGS="$(rpm --target ${i} --eval '%%{optflags} -fno-strict-aliasing -Wno-error' |sed -e 's,-Werror[^ ]*,,g')" \
+	CXXFLAGS="$(rpm --target ${i} --eval '%%{optflags} -fno-strict-aliasing -Wno-error' |sed -e 's,-Werror[^ ]*,,g')" \
+	ASFLAGS="$(rpm --target ${i} --eval '%%{optflags} -fno-strict-aliasing -Wno-error' |sed -e 's,-Werror[^ ]*,,g')" \
+	LDFLAGS="$(rpm --target ${i} --eval '%%{ldflags} -fno-strict-aliasing -Wno-error')" \
 	CC="${TRIPLET}-gcc ${CFLAGS}" \
 	../configure \
 		--prefix=%{_prefix}/${TRIPLET} \
 		--host=${TRIPLET} \
 		--target=${TRIPLET} \
-    		--with-gnu-ld=${TRIPLET}-ld.bfd \
+    		--with-gnu-ld=${TRIPLET}-ld.gold \
 		--with-headers=%{_prefix}/${TRIPLET}/include
 	%make_build
 	cd ..
